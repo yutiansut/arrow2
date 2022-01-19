@@ -555,6 +555,9 @@ pub fn write(
             is_little_endian,
             compression,
         ),
+        Utf8Sequence | LargeUtf8Sequence => {
+            todo!("Arrow does not yet support exporting sequence views via IPC")
+        }
         List => write_list::<i32>(
             array,
             buffers,

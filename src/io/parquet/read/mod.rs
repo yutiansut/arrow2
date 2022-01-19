@@ -211,7 +211,8 @@ fn column_offset(data_type: &DataType) -> usize {
     use crate::datatypes::PhysicalType::*;
     match data_type.to_physical_type() {
         Null | Boolean | Primitive(_) | FixedSizeBinary | Binary | LargeBinary | Utf8
-        | LargeUtf8 | Dictionary(_) | List | LargeList | FixedSizeList => 0,
+        | LargeUtf8 | Dictionary(_) | List | LargeList | FixedSizeList | Utf8Sequence
+        | LargeUtf8Sequence => 0,
         Struct => {
             if let DataType::Struct(v) = data_type.to_logical_type() {
                 v.iter().map(|x| 1 + column_offset(x.data_type())).sum()
@@ -228,7 +229,8 @@ fn column_datatype(data_type: &DataType, column: usize) -> DataType {
     use crate::datatypes::PhysicalType::*;
     match data_type.to_physical_type() {
         Null | Boolean | Primitive(_) | FixedSizeBinary | Binary | LargeBinary | Utf8
-        | LargeUtf8 | Dictionary(_) | List | LargeList | FixedSizeList => data_type.clone(),
+        | LargeUtf8 | Dictionary(_) | List | LargeList | FixedSizeList | Utf8Sequence
+        | LargeUtf8Sequence => data_type.clone(),
         Struct => {
             if let DataType::Struct(fields) = data_type.to_logical_type() {
                 let mut total_chunk = 0;
@@ -395,9 +397,8 @@ fn finish_array(data_type: DataType, arrays: &mut VecDeque<Box<dyn Array>>) -> B
     use crate::datatypes::PhysicalType::*;
     match data_type.to_physical_type() {
         Null | Boolean | Primitive(_) | FixedSizeBinary | Binary | LargeBinary | Utf8
-        | LargeUtf8 | List | LargeList | FixedSizeList | Dictionary(_) => {
-            arrays.pop_front().unwrap()
-        }
+        | LargeUtf8 | List | LargeList | FixedSizeList | Dictionary(_) | Utf8Sequence
+        | LargeUtf8Sequence => arrays.pop_front().unwrap(),
         Struct => {
             if let DataType::Struct(fields) = data_type.to_logical_type() {
                 let values = fields

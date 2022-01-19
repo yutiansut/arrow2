@@ -124,6 +124,8 @@ pub fn get_value_display<'a>(array: &'a dyn Array) -> Box<dyn Fn(usize) -> Strin
         }),
         Utf8 => dyn_display!(array, Utf8Array<i32>, |x| x),
         LargeUtf8 => dyn_display!(array, Utf8Array<i64>, |x| x),
+        Utf8Sequence => dyn_display!(array, StringSequenceArray<i32>, |x| x),
+        LargeUtf8Sequence => dyn_display!(array, StringSequenceArray<i64>, |x| x),
         Decimal(_, scale) => {
             // The number 999.99 has a precision of 5 and scale of 2
             let scale = *scale as u32;
