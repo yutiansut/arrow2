@@ -46,7 +46,7 @@ impl<O: Offset> StringSequenceArray<O> {
         &self.offsets
     }
 
-    /// Returns the offsets that together with `lengths` slice `.values()` of values.
+    /// Returns the lengths that together with `offsets` slice `.values()` of values.
     #[inline]
     pub fn lengths(&self) -> &Buffer<O> {
         &self.lengths
