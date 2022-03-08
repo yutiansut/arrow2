@@ -1,5 +1,5 @@
 use crate::bitmap::utils::{BitChunkIterExact, BitChunksExact};
-use crate::datatypes::{DataType, IntervalUnit};
+use crate::datatypes::{DataType, DecimalType, IntervalUnit};
 use crate::error::{ArrowError, Result};
 use crate::scalar::*;
 use crate::types::simd::*;
@@ -394,7 +394,7 @@ pub fn max(array: &dyn Array) -> Result<Box<dyn Scalar>> {
         DataType::Float16 => unreachable!(),
         DataType::Float32 => dyn_primitive!(f32, array, max_primitive),
         DataType::Float64 => dyn_primitive!(f64, array, max_primitive),
-        DataType::Decimal(_, _) => dyn_primitive!(i128, array, max_primitive),
+        DataType::Decimal(DecimalType::Int128, _, _) => dyn_primitive!(i128, array, max_primitive),
         DataType::Utf8 => dyn_generic!(Utf8Array<i32>, Utf8Scalar<i32>, array, max_string),
         DataType::LargeUtf8 => dyn_generic!(Utf8Array<i64>, Utf8Scalar<i64>, array, max_string),
         DataType::Binary => dyn_generic!(BinaryArray<i32>, BinaryScalar<i32>, array, max_binary),
@@ -436,7 +436,7 @@ pub fn min(array: &dyn Array) -> Result<Box<dyn Scalar>> {
         DataType::Float16 => unreachable!(),
         DataType::Float32 => dyn_primitive!(f32, array, min_primitive),
         DataType::Float64 => dyn_primitive!(f64, array, min_primitive),
-        DataType::Decimal(_, _) => dyn_primitive!(i128, array, min_primitive),
+        DataType::Decimal(DecimalType::Int128, _, _) => dyn_primitive!(i128, array, min_primitive),
         DataType::Utf8 => dyn_generic!(Utf8Array<i32>, Utf8Scalar<i32>, array, min_string),
         DataType::LargeUtf8 => dyn_generic!(Utf8Array<i64>, Utf8Scalar<i64>, array, min_string),
         DataType::Binary => dyn_generic!(BinaryArray<i32>, BinaryScalar<i32>, array, min_binary),
