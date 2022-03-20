@@ -3,9 +3,15 @@
 
 mod deserialize;
 mod file;
+mod indexes;
 mod row_group;
 pub mod schema;
 pub mod statistics;
+
+use std::{
+    io::{Read, Seek},
+    sync::Arc,
+};
 
 use futures::{AsyncRead, AsyncSeek};
 
@@ -17,9 +23,10 @@ pub use parquet2::{
     page::{CompressedDataPage, DataPage, DataPageHeader},
     read::{
         decompress, get_column_iterator, get_page_iterator as _get_page_iterator,
-        get_page_stream as _get_page_stream, read_metadata as _read_metadata,
-        read_metadata_async as _read_metadata_async, BasicDecompressor, ColumnChunkIter,
-        Decompressor, MutStreamingIterator, PageFilter, PageIterator, ReadColumnIterator, State,
+        get_page_stream as _get_page_stream, read_columns_indexes as _read_columns_indexes,
+        read_metadata as _read_metadata, read_metadata_async as _read_metadata_async,
+        BasicDecompressor, ColumnChunkIter, Decompressor, MutStreamingIterator, PageFilter,
+        PageReader, ReadColumnIterator, State,
     },
     schema::types::{
         LogicalType, ParquetType, PhysicalType, PrimitiveConvertedType,
@@ -29,18 +36,13 @@ pub use parquet2::{
     FallibleStreamingIterator,
 };
 
+use crate::{array::Array, error::Result};
+
 pub use deserialize::{column_iter_to_arrays, get_page_iterator};
 pub use file::{FileReader, RowGroupReader};
+pub use indexes::{read_columns_indexes, ColumnIndex};
 pub use row_group::*;
-pub(crate) use schema::is_type_nullable;
 pub use schema::{infer_schema, FileMetaData};
-
-use std::{
-    io::{Read, Seek},
-    sync::Arc,
-};
-
-use crate::{array::Array, error::Result};
 
 /// Trait describing a [`FallibleStreamingIterator`] of [`DataPage`]
 pub trait DataPages:

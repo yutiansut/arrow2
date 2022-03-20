@@ -131,7 +131,7 @@ where
 
     fn build_state(&self, page: &'a DataPage) -> Result<Self::State> {
         let is_optional =
-            page.descriptor().type_().get_basic_info().repetition() == &Repetition::Optional;
+            page.descriptor.primitive_type.field_info.repetition == Repetition::Optional;
 
         match (page.encoding(), is_optional) {
             (Encoding::PlainDictionary | Encoding::RleDictionary, false) => {

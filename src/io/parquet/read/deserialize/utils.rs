@@ -55,7 +55,7 @@ pub fn not_implemented(
 
 #[inline]
 pub fn split_buffer(page: &DataPage) -> (&[u8], &[u8], &[u8]) {
-    _split_buffer(page, page.descriptor())
+    _split_buffer(page)
 }
 
 /// A private trait representing structs that can receive elements.

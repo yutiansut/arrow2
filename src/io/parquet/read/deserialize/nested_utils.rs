@@ -283,8 +283,8 @@ impl<'a> NestedPage<'a> {
     pub fn new(page: &'a DataPage) -> Self {
         let (rep_levels, def_levels, _) = split_buffer(page);
 
-        let max_rep_level = page.descriptor().max_rep_level();
-        let max_def_level = page.descriptor().max_def_level();
+        let max_rep_level = page.descriptor.max_rep_level;
+        let max_def_level = page.descriptor.max_def_level;
 
         let reps =
             HybridRleDecoder::new(rep_levels, get_bit_width(max_rep_level), page.num_values());
@@ -451,7 +451,7 @@ impl<'a> Optional<'a> {
     pub fn new(page: &'a DataPage) -> Self {
         let (_, def_levels, _) = split_buffer(page);
 
-        let max_def = page.descriptor().max_def_level();
+        let max_def = page.descriptor.max_def_level;
 
         Self {
             definition_levels: HybridRleDecoder::new(

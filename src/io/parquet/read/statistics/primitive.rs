@@ -1,14 +1,16 @@
-use crate::datatypes::TimeUnit;
-use crate::{datatypes::DataType, types::NativeType};
+use std::any::Any;
+
 use parquet2::schema::types::{
-    LogicalType, ParquetType, TimeUnit as ParquetTimeUnit, TimestampType,
+    LogicalType, PrimitiveType, TimeUnit as ParquetTimeUnit, TimestampType,
 };
 use parquet2::statistics::PrimitiveStatistics as ParquetPrimitiveStatistics;
 use parquet2::types::NativeType as ParquetNativeType;
-use std::any::Any;
+
+use crate::datatypes::TimeUnit;
+use crate::error::Result;
+use crate::{datatypes::DataType, types::NativeType};
 
 use super::Statistics;
-use crate::error::Result;
 
 /// Arrow-deserialized parquet Statistics of a primitive type
 #[derive(Debug, Clone, PartialEq)]
@@ -74,14 +76,9 @@ pub(super) fn statistics_from_i32(
     })
 }
 
-fn timestamp(type_: &ParquetType, time_unit: TimeUnit, x: i64) -> i64 {
-    let logical_type = if let ParquetType::PrimitiveType { logical_type, .. } = type_ {
-        logical_type
-    } else {
-        unreachable!()
-    };
-
-    let unit = if let Some(LogicalType::TIMESTAMP(TimestampType { unit, .. })) = logical_type {
+fn timestamp(type_: &PrimitiveType, time_unit: TimeUnit, x: i64) -> i64 {
+    let unit = if let Some(LogicalType::TIMESTAMP(TimestampType { unit, .. })) = &type_.logical_type
+    {
         unit
     } else {
         return x;
@@ -121,10 +118,10 @@ pub(super) fn statistics_from_i64(
             distinct_count: stats.distinct_count,
             min_value: stats
                 .min_value
-                .map(|x| timestamp(stats.descriptor.type_(), time_unit, x)),
+                .map(|x| timestamp(&stats.primitive_type, time_unit, x)),
             max_value: stats
                 .max_value
-                .map(|x| timestamp(stats.descriptor.type_(), time_unit, x)),
+                .map(|x| timestamp(&stats.primitive_type, time_unit, x)),
         }),
         Decimal(_, _) => Box::new(PrimitiveStatistics::<i128>::from((stats, data_type))),
         _ => Box::new(PrimitiveStatistics::<i64>::from((stats, data_type))),

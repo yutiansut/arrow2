@@ -121,7 +121,7 @@ impl<'a> Decoder<'a> for BinaryDecoder {
 
     fn build_state(&self, page: &'a DataPage) -> Result<Self::State> {
         let is_optional =
-            page.descriptor().type_().get_basic_info().repetition() == &Repetition::Optional;
+            page.descriptor.primitive_type.field_info.repetition == Repetition::Optional;
 
         match (page.encoding(), page.dictionary_page(), is_optional) {
             (Encoding::Plain, None, true) => Ok(State::Optional(Optional::new(page, self.size))),

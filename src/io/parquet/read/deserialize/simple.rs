@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use parquet2::{
     schema::types::{
-        LogicalType, ParquetType, PhysicalType, TimeUnit as ParquetTimeUnit, TimestampType,
+        LogicalType, PhysicalType, PrimitiveType, TimeUnit as ParquetTimeUnit, TimestampType,
     },
     types::int96_to_i64_ns,
 };
@@ -60,24 +60,14 @@ where
 /// of [`DataType`] `data_type` and `chunk_size`.
 pub fn page_iter_to_arrays<'a, I: 'a + DataPages>(
     pages: I,
-    type_: &ParquetType,
+    type_: &PrimitiveType,
     data_type: DataType,
     chunk_size: usize,
 ) -> Result<ArrayIter<'a>> {
     use DataType::*;
 
-    let (physical_type, logical_type) = if let ParquetType::PrimitiveType {
-        physical_type,
-        logical_type,
-        ..
-    } = type_
-    {
-        (physical_type, logical_type)
-    } else {
-        return Err(ArrowError::InvalidArgumentError(
-            "page_iter_to_arrays can only be called with a parquet primitive type".into(),
-        ));
-    };
+    let physical_type = &type_.physical_type;
+    let logical_type = &type_.logical_type;
 
     Ok(match data_type.to_logical_type() {
         Null => null::iter_to_arrays(pages, data_type, chunk_size),
@@ -276,7 +266,7 @@ fn timestamp<'a, I: 'a + DataPages>(
     Ok(match (unit, time_unit) {
         (ParquetTimeUnit::MILLIS(_), TimeUnit::Second) => dyn_iter(op(iter, |x| x / 1_000)),
         (ParquetTimeUnit::MICROS(_), TimeUnit::Second) => dyn_iter(op(iter, |x| x / 1_000_000)),
-        (ParquetTimeUnit::NANOS(_), TimeUnit::Second) => dyn_iter(op(iter, |x| x * 1_000_000_000)),
+        (ParquetTimeUnit::NANOS(_), TimeUnit::Second) => dyn_iter(op(iter, |x| x / 1_000_000_000)),
 
         (ParquetTimeUnit::MILLIS(_), TimeUnit::Millisecond) => dyn_iter(iden(iter)),
         (ParquetTimeUnit::MICROS(_), TimeUnit::Millisecond) => dyn_iter(op(iter, |x| x / 1_000)),
@@ -348,7 +338,7 @@ fn timestamp_dict<'a, K: DictionaryKey, I: 'a + DataPages>(
                 pages,
                 data_type,
                 chunk_size,
-                |x: i64| x * 1_000_000_000,
+                |x: i64| x / 1_000_000_000,
             ))
         }
 

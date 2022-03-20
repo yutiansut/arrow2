@@ -1,8 +1,8 @@
 //! This module has a single entry point, [`parquet_to_arrow_schema`].
 use parquet2::schema::{
     types::{
-        BasicTypeInfo, GroupConvertedType, LogicalType, ParquetType, PhysicalType,
-        PrimitiveConvertedType, TimeUnit as ParquetTimeUnit, TimestampType,
+        FieldInfo, GroupConvertedType, LogicalType, ParquetType, PhysicalType,
+        PrimitiveConvertedType, PrimitiveType, TimeUnit as ParquetTimeUnit, TimestampType,
     },
     Repetition,
 };
@@ -166,41 +166,40 @@ fn from_fixed_len_byte_array(
 }
 
 /// Maps a [`PhysicalType`] with optional metadata to a [`DataType`]
-fn to_primitive_type_inner(
-    physical_type: &PhysicalType,
-    logical_type: &Option<LogicalType>,
-    converted_type: &Option<PrimitiveConvertedType>,
-) -> DataType {
-    match physical_type {
+fn to_primitive_type_inner(primitive_type: &PrimitiveType) -> DataType {
+    match primitive_type.physical_type {
         PhysicalType::Boolean => DataType::Boolean,
-        PhysicalType::Int32 => from_int32(logical_type, converted_type),
-        PhysicalType::Int64 => from_int64(logical_type, converted_type),
+        PhysicalType::Int32 => {
+            from_int32(&primitive_type.logical_type, &primitive_type.converted_type)
+        }
+        PhysicalType::Int64 => {
+            from_int64(&primitive_type.logical_type, &primitive_type.converted_type)
+        }
         PhysicalType::Int96 => DataType::Timestamp(TimeUnit::Nanosecond, None),
         PhysicalType::Float => DataType::Float32,
         PhysicalType::Double => DataType::Float64,
-        PhysicalType::ByteArray => from_byte_array(logical_type, converted_type),
-        PhysicalType::FixedLenByteArray(length) => {
-            from_fixed_len_byte_array(length, logical_type, converted_type)
+        PhysicalType::ByteArray => {
+            from_byte_array(&primitive_type.logical_type, &primitive_type.converted_type)
         }
+        PhysicalType::FixedLenByteArray(length) => from_fixed_len_byte_array(
+            &length,
+            &primitive_type.logical_type,
+            &primitive_type.converted_type,
+        ),
     }
 }
 
 /// Entry point for converting parquet primitive type to arrow type.
 ///
 /// This function takes care of repetition.
-fn to_primitive_type(
-    basic_info: &BasicTypeInfo,
-    physical_type: &PhysicalType,
-    logical_type: &Option<LogicalType>,
-    converted_type: &Option<PrimitiveConvertedType>,
-) -> DataType {
-    let base_type = to_primitive_type_inner(physical_type, logical_type, converted_type);
+fn to_primitive_type(primitive_type: &PrimitiveType) -> DataType {
+    let base_type = to_primitive_type_inner(primitive_type);
 
-    if basic_info.repetition() == &Repetition::Repeated {
+    if primitive_type.field_info.repetition == Repetition::Repeated {
         DataType::List(Box::new(Field::new(
-            basic_info.name(),
+            &primitive_type.field_info.name,
             base_type,
-            is_nullable(basic_info),
+            is_nullable(&primitive_type.field_info),
         )))
     } else {
         base_type
@@ -236,18 +235,18 @@ fn to_struct(fields: &[ParquetType]) -> Option<DataType> {
 ///
 /// This function takes care of logical type and repetition.
 fn to_group_type(
-    basic_info: &BasicTypeInfo,
+    field_info: &FieldInfo,
     logical_type: &Option<LogicalType>,
     converted_type: &Option<GroupConvertedType>,
     fields: &[ParquetType],
     parent_name: &str,
 ) -> Option<DataType> {
     debug_assert!(!fields.is_empty());
-    if basic_info.repetition() == &Repetition::Repeated {
+    if field_info.repetition == Repetition::Repeated {
         Some(DataType::List(Box::new(Field::new(
-            basic_info.name(),
+            &field_info.name,
             to_struct(fields)?,
-            is_nullable(basic_info),
+            is_nullable(field_info),
         ))))
     } else {
         non_repeated_group(logical_type, converted_type, fields, parent_name)
@@ -255,8 +254,8 @@ fn to_group_type(
 }
 
 /// Checks whether this schema is nullable.
-pub(crate) fn is_nullable(basic_info: &BasicTypeInfo) -> bool {
-    match basic_info.repetition() {
+pub(crate) fn is_nullable(field_info: &FieldInfo) -> bool {
+    match field_info.repetition {
         Repetition::Optional => true,
         Repetition::Repeated => true,
         Repetition::Required => false,
@@ -268,9 +267,9 @@ pub(crate) fn is_nullable(basic_info: &BasicTypeInfo) -> bool {
 /// i.e. if it is a column-less group type.
 fn to_field(type_: &ParquetType) -> Option<Field> {
     Some(Field::new(
-        type_.get_basic_info().name(),
+        &type_.get_field_info().name,
         to_data_type(type_)?,
-        is_nullable(type_.get_basic_info()),
+        is_nullable(type_.get_field_info()),
     ))
 }
 
@@ -282,16 +281,7 @@ fn to_list(fields: &[ParquetType], parent_name: &str) -> Option<DataType> {
     let item = fields.first().unwrap();
 
     let item_type = match item {
-        ParquetType::PrimitiveType {
-            physical_type,
-            logical_type,
-            converted_type,
-            ..
-        } => Some(to_primitive_type_inner(
-            physical_type,
-            logical_type,
-            converted_type,
-        )),
+        ParquetType::PrimitiveType(primitive) => Some(to_primitive_type_inner(primitive)),
         ParquetType::GroupType { fields, .. } => {
             if fields.len() == 1
                 && item.name() != "array"
@@ -312,17 +302,17 @@ fn to_list(fields: &[ParquetType], parent_name: &str) -> Option<DataType> {
     // Without this step, the child incorrectly inherits the parent's optionality
     let (list_item_name, item_is_optional) = match item {
         ParquetType::GroupType {
-            basic_info, fields, ..
-        } if basic_info.name() == "list" && fields.len() == 1 => {
+            field_info, fields, ..
+        } if field_info.name == "list" && fields.len() == 1 => {
             let field = fields.first().unwrap();
             (
-                field.name(),
-                field.get_basic_info().repetition() != &Repetition::Required,
+                &field.get_field_info().name,
+                field.get_field_info().repetition != Repetition::Required,
             )
         }
         _ => (
-            item.name(),
-            item.get_basic_info().repetition() != &Repetition::Required,
+            &item.get_field_info().name,
+            item.get_field_info().repetition != Repetition::Required,
         ),
     };
 
@@ -344,19 +334,9 @@ fn to_list(fields: &[ParquetType], parent_name: &str) -> Option<DataType> {
 /// conversion, the result is Ok(None).
 pub(crate) fn to_data_type(type_: &ParquetType) -> Option<DataType> {
     match type_ {
-        ParquetType::PrimitiveType {
-            basic_info,
-            physical_type,
-            logical_type,
-            converted_type,
-        } => Some(to_primitive_type(
-            basic_info,
-            physical_type,
-            logical_type,
-            converted_type,
-        )),
+        ParquetType::PrimitiveType(primitive) => Some(to_primitive_type(primitive)),
         ParquetType::GroupType {
-            basic_info,
+            field_info,
             logical_type,
             converted_type,
             fields,
@@ -365,11 +345,11 @@ pub(crate) fn to_data_type(type_: &ParquetType) -> Option<DataType> {
                 None
             } else {
                 to_group_type(
-                    basic_info,
+                    field_info,
                     logical_type,
                     converted_type,
                     fields,
-                    basic_info.name(),
+                    &field_info.name,
                 )
             }
         }
