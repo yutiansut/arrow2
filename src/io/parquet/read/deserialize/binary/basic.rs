@@ -61,15 +61,19 @@ fn read_delta_optional<O: Offset>(
 
 #[derive(Debug)]
 pub(super) struct Required<'a> {
-    pub values: BinaryIter<'a>,
+    pub values: std::iter::Take<std::iter::Skip<BinaryIter<'a>>>,
+    // here because `BinaryIter` has no size_hint.
     pub remaining: usize,
 }
 
 impl<'a> Required<'a> {
     pub fn new(page: &'a DataPage) -> Self {
+        let values = BinaryIter::new(page.buffer());
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
+
         Self {
-            values: BinaryIter::new(page.buffer()),
-            remaining: page.num_values(),
+            values: values.skip(offset).take(length),
+            remaining: length,
         }
     }
 }
@@ -220,7 +224,7 @@ impl<'a, O: Offset> utils::Decoder<'a> for BinaryDecoder<O> {
                 page_values,
             ),
             State::Required(page) => {
-                page.remaining -= additional;
+                page.remaining = page.remaining.saturating_sub(additional);
                 for x in page.values.by_ref().take(additional) {
                     values.push(x)
                 }

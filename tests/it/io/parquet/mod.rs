@@ -1,10 +1,13 @@
 use std::io::{Cursor, Read, Seek};
 use std::sync::Arc;
 
+use arrow2::error::ArrowError;
 use arrow2::{
     array::*, bitmap::Bitmap, buffer::Buffer, chunk::Chunk, datatypes::*, error::Result,
     io::parquet::read::statistics::*, io::parquet::read::*, io::parquet::write::*,
 };
+use parquet2::indexes::{compute_rows, select_pages};
+use parquet2::read::IndexedPageReader;
 
 use crate::io::ipc::read_gzip_json;
 
@@ -828,5 +831,125 @@ fn arrow_type() -> Result<()> {
 
     assert_eq!(new_schema, schema);
     assert_eq!(new_batches, vec![batch]);
+    Ok(())
+}
+
+/// Returns 2 sets of pages with different the same number of rows distributed un-evenly
+fn pages() -> Result<(Vec<EncodedPage>, Vec<EncodedPage>, Schema)> {
+    // create pages with different number of rows
+    let array11 = PrimitiveArray::<i64>::from_slice([1, 2, 3, 4, 5]);
+    let array12 = PrimitiveArray::<i64>::from_slice([6]);
+    let array21 = Utf8Array::<i32>::from_slice(["a", "b", "c"]);
+    let array22 = Utf8Array::<i32>::from_slice(["d", "e", "f"]);
+
+    let schema = Schema::from(vec![
+        Field::new("a1", DataType::Int64, false),
+        Field::new("a2", DataType::Utf8, false),
+    ]);
+
+    let parquet_schema = to_parquet_schema(&schema)?;
+
+    let options = WriteOptions {
+        write_statistics: true,
+        compression: Compression::Uncompressed,
+        version: Version::V1,
+    };
+
+    let pages1 = vec![
+        array_to_page(
+            &array11,
+            parquet_schema.columns()[0].descriptor.clone(),
+            options,
+            Encoding::Plain,
+        )?,
+        array_to_page(
+            &array12,
+            parquet_schema.columns()[0].descriptor.clone(),
+            options,
+            Encoding::Plain,
+        )?,
+    ];
+    let pages2 = vec![
+        array_to_page(
+            &array21,
+            parquet_schema.columns()[1].descriptor.clone(),
+            options,
+            Encoding::Plain,
+        )?,
+        array_to_page(
+            &array22,
+            parquet_schema.columns()[1].descriptor.clone(),
+            options,
+            Encoding::Plain,
+        )?,
+    ];
+
+    Ok((pages1, pages2, schema))
+}
+
+/// Tests that when arrow-specific types (Duration and LargeUtf8) are written to parquet, we can rountrip its
+/// logical types.
+#[test]
+fn read_with_indexes() -> Result<()> {
+    let (pages1, pages2, schema) = pages()?;
+
+    let options = WriteOptions {
+        write_statistics: true,
+        compression: Compression::Uncompressed,
+        version: Version::V1,
+    };
+
+    let to_compressed = |pages: Vec<EncodedPage>| {
+        let encoded_pages = DynIter::new(pages.into_iter().map(Ok));
+        let compressed_pages =
+            Compressor::new(encoded_pages, options.compression, vec![]).map_err(ArrowError::from);
+        Result::Ok(DynStreamingIterator::new(compressed_pages))
+    };
+
+    let row_group = DynIter::new(vec![to_compressed(pages1), to_compressed(pages2)].into_iter());
+
+    let writer = vec![];
+    let mut writer = FileWriter::try_new(writer, schema, options)?;
+
+    writer.start()?;
+    writer.write(row_group)?;
+    let (_, data) = writer.end(None)?;
+
+    let mut reader = Cursor::new(data);
+
+    let metadata = read_metadata(&mut reader)?;
+
+    let schema = infer_schema(&metadata)?;
+
+    let row_group = &metadata.row_groups[0];
+
+    let pages = read_pages_locations(&mut reader, row_group.columns())?;
+
+    // say we concluded from the indexes that we only needed the "6" from the first column, so second page.
+    let _indexes = read_columns_indexes(&mut reader, row_group.columns(), &schema.fields)?;
+    let intervals = compute_rows(&[false, true], &pages[0], row_group.num_rows() as u64)?;
+
+    // based on the intervals from c1, we compute which pages from the second column are required:
+    let pages = select_pages(&intervals, &pages[1], row_group.num_rows() as u64)?;
+
+    // and read them:
+    let c1 = &metadata.row_groups[0].columns()[1];
+
+    let pages = IndexedPageReader::new(reader, c1, pages, vec![], vec![]);
+    let pages = BasicDecompressor::new(pages, vec![]);
+
+    let arrays = column_iter_to_arrays(
+        vec![pages],
+        vec![&c1.descriptor().descriptor.primitive_type],
+        schema.fields[1].clone(),
+        row_group.num_rows() as usize,
+    )?;
+
+    let arrays = arrays.collect::<Result<Vec<_>>>()?;
+
+    assert_eq!(
+        arrays,
+        vec![Arc::new(Utf8Array::<i32>::from_slice(["f"])) as Arc<dyn Array>]
+    );
     Ok(())
 }

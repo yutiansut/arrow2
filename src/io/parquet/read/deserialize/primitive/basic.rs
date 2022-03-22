@@ -18,6 +18,29 @@ use super::super::utils::OptionalPageValidity;
 use super::super::DataPages;
 
 #[derive(Debug)]
+pub(super) struct RequiredValues<'a> {
+    pub values: std::iter::Take<std::iter::Skip<std::slice::ChunksExact<'a, u8>>>,
+}
+
+impl<'a> RequiredValues<'a> {
+    pub fn new<P: ParquetNativeType>(page: &'a DataPage) -> Self {
+        let (_, _, values) = utils::split_buffer(page);
+        assert_eq!(values.len() % std::mem::size_of::<P>(), 0);
+        let values = values.chunks_exact(std::mem::size_of::<P>());
+
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
+        Self {
+            values: values.skip(offset).take(length),
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.size_hint().0
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct Values<'a> {
     pub values: std::slice::ChunksExact<'a, u8>,
 }
@@ -73,7 +96,7 @@ where
     P: ParquetNativeType,
 {
     Optional(OptionalPageValidity<'a>, Values<'a>),
-    Required(Values<'a>),
+    Required(RequiredValues<'a>),
     RequiredDictionary(ValuesDictionary<'a, P>),
     OptionalDictionary(OptionalPageValidity<'a>, ValuesDictionary<'a, P>),
 }
@@ -158,7 +181,7 @@ where
 
                 Ok(State::Optional(validity, values))
             }
-            (Encoding::Plain, _, false) => Ok(State::Required(Values::new::<P>(page))),
+            (Encoding::Plain, _, false) => Ok(State::Required(RequiredValues::new::<P>(page))),
             _ => Err(utils::not_implemented(
                 &page.encoding(),
                 is_optional,

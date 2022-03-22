@@ -183,9 +183,7 @@ pub fn to_deserializer<'a>(
         .map(|(column_meta, chunk)| {
             let pages = PageReader::new(
                 std::io::Cursor::new(chunk),
-                column_meta.num_values(),
-                column_meta.compression(),
-                column_meta.descriptor().descriptor.clone(),
+                column_meta,
                 Arc::new(|_, _| true),
                 vec![],
             );

@@ -69,7 +69,7 @@ ahash = { version = "0.7", optional = true }
 
 # parquet support
 #parquet2 = { version = "0.10", optional = true, default_features = false, features = ["stream"] }
-parquet2 = { git = "https://github.com/jorgecarleitao/parquet2", branch = "write_indexes", optional = true, default_features = false, features = ["stream"] }
+parquet2 = { git = "https://github.com/jorgecarleitao/parquet2", rev = "40caedeebda6641443b7fc99f0adeb38e6bec518", optional = true, default_features = false, features = ["stream"] }
 
 # avro support
 avro-schema = { version = "0.2", optional = true }
