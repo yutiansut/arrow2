@@ -36,16 +36,24 @@ impl<'a> Optional<'a> {
 }
 
 struct Required<'a> {
-    pub values: std::slice::ChunksExact<'a, u8>,
-    pub remaining: usize,
+    pub values: std::iter::Take<std::iter::Skip<std::slice::ChunksExact<'a, u8>>>,
 }
 
 impl<'a> Required<'a> {
     fn new(page: &'a DataPage, size: usize) -> Self {
+        let values = page.buffer();
+        assert_eq!(values.len() % size, 0);
+        let values = values.chunks_exact(size);
+
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
         Self {
-            values: page.buffer().chunks_exact(size),
-            remaining: page.num_values(),
+            values: values.skip(offset).take(length),
         }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.size_hint().0
     }
 }
 
@@ -98,7 +106,7 @@ impl<'a> PageState<'a> for State<'a> {
     fn len(&self) -> usize {
         match self {
             State::Optional(state) => state.validity.len(),
-            State::Required(state) => state.remaining,
+            State::Required(state) => state.len(),
             State::RequiredDictionary(state) => state.remaining,
             State::OptionalDictionary(state) => state.validity.len(),
         }
@@ -172,7 +180,6 @@ impl<'a> Decoder<'a> for BinaryDecoder {
                 &mut page.values,
             ),
             State::Required(page) => {
-                page.remaining -= remaining;
                 for x in page.values.by_ref().take(remaining) {
                     values.push(x)
                 }
@@ -201,7 +208,7 @@ impl<'a> Decoder<'a> for BinaryDecoder {
                     &dict_values[index * size..(index + 1) * size]
                 };
 
-                page.remaining -= remaining;
+                page.remaining = page.remaining.saturating_sub(remaining);
                 for x in page.values.by_ref().map(op).take(remaining) {
                     values.push(x)
                 }

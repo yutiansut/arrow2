@@ -835,16 +835,21 @@ fn arrow_type() -> Result<()> {
 }
 
 /// Returns 2 sets of pages with different the same number of rows distributed un-evenly
-fn pages() -> Result<(Vec<EncodedPage>, Vec<EncodedPage>, Schema)> {
+fn pages(
+    array21: &dyn Array,
+    array22: &dyn Array,
+) -> Result<(Vec<EncodedPage>, Vec<EncodedPage>, Schema)> {
     // create pages with different number of rows
     let array11 = PrimitiveArray::<i64>::from_slice([1, 2, 3, 4, 5]);
     let array12 = PrimitiveArray::<i64>::from_slice([6]);
-    let array21 = Utf8Array::<i32>::from_slice(["a", "b", "c"]);
-    let array22 = Utf8Array::<i32>::from_slice(["d", "e", "f"]);
 
     let schema = Schema::from(vec![
         Field::new("a1", DataType::Int64, false),
-        Field::new("a2", DataType::Utf8, false),
+        Field::new(
+            "a2",
+            array21.data_type().clone(),
+            (array22.null_count() + array21.null_count()) != 0,
+        ),
     ]);
 
     let parquet_schema = to_parquet_schema(&schema)?;
@@ -871,13 +876,13 @@ fn pages() -> Result<(Vec<EncodedPage>, Vec<EncodedPage>, Schema)> {
     ];
     let pages2 = vec![
         array_to_page(
-            &array21,
+            array21,
             parquet_schema.columns()[1].descriptor.clone(),
             options,
             Encoding::Plain,
         )?,
         array_to_page(
-            &array22,
+            array22,
             parquet_schema.columns()[1].descriptor.clone(),
             options,
             Encoding::Plain,
@@ -887,12 +892,11 @@ fn pages() -> Result<(Vec<EncodedPage>, Vec<EncodedPage>, Schema)> {
     Ok((pages1, pages2, schema))
 }
 
-/// Tests that when arrow-specific types (Duration and LargeUtf8) are written to parquet, we can rountrip its
-/// logical types.
-#[test]
-fn read_with_indexes() -> Result<()> {
-    let (pages1, pages2, schema) = pages()?;
-
+/// Tests reading pages while skipping indexes
+fn read_with_indexes(
+    (pages1, pages2, schema): (Vec<EncodedPage>, Vec<EncodedPage>, Schema),
+    expected: Arc<dyn Array>,
+) -> Result<()> {
     let options = WriteOptions {
         write_statistics: true,
         compression: Compression::Uncompressed,
@@ -947,9 +951,78 @@ fn read_with_indexes() -> Result<()> {
 
     let arrays = arrays.collect::<Result<Vec<_>>>()?;
 
-    assert_eq!(
-        arrays,
-        vec![Arc::new(Utf8Array::<i32>::from_slice(["f"])) as Arc<dyn Array>]
-    );
+    assert_eq!(arrays, vec![expected]);
     Ok(())
+}
+
+#[test]
+fn indexed_required_utf8() -> Result<()> {
+    let array21 = Utf8Array::<i32>::from_slice(["a", "b", "c"]);
+    let array22 = Utf8Array::<i32>::from_slice(["d", "e", "f"]);
+    let expected = Arc::new(Utf8Array::<i32>::from_slice(["f"])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_required_i32() -> Result<()> {
+    let array21 = Int32Array::from_slice([1, 2, 3]);
+    let array22 = Int32Array::from_slice([4, 5, 6]);
+    let expected = Arc::new(Int32Array::from_slice([6])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_optional_i32() -> Result<()> {
+    let array21 = Int32Array::from([Some(1), Some(2), None]);
+    let array22 = Int32Array::from([Some(4), None, Some(6)]);
+    let expected = Arc::new(Int32Array::from_slice([6])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_optional_utf8() -> Result<()> {
+    let array21 = Utf8Array::<i32>::from([Some("a"), Some("b"), None]);
+    let array22 = Utf8Array::<i32>::from([Some("d"), None, Some("f")]);
+    let expected = Arc::new(Utf8Array::<i32>::from_slice(["f"])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_required_fixed_len() -> Result<()> {
+    let array21 = FixedSizeBinaryArray::from_slice([[127], [128], [129]]);
+    let array22 = FixedSizeBinaryArray::from_slice([[130], [131], [132]]);
+    let expected = Arc::new(FixedSizeBinaryArray::from_slice([[132]])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_optional_fixed_len() -> Result<()> {
+    let array21 = FixedSizeBinaryArray::from([Some([127]), Some([128]), None]);
+    let array22 = FixedSizeBinaryArray::from([Some([130]), None, Some([132])]);
+    let expected = Arc::new(FixedSizeBinaryArray::from_slice([[132]])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_required_boolean() -> Result<()> {
+    let array21 = BooleanArray::from_slice([true, false, true]);
+    let array22 = BooleanArray::from_slice([false, false, true]);
+    let expected = Arc::new(BooleanArray::from_slice([true])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
+}
+
+#[test]
+fn indexed_optional_boolean() -> Result<()> {
+    let array21 = BooleanArray::from([Some(true), Some(false), None]);
+    let array22 = BooleanArray::from([Some(false), None, Some(true)]);
+    let expected = Arc::new(BooleanArray::from_slice([true])) as Arc<dyn Array>;
+
+    read_with_indexes(pages(&array21, &array22)?, expected)
 }

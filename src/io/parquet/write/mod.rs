@@ -53,13 +53,11 @@ pub(self) fn decimal_length_from_precision(precision: usize) -> usize {
 
 /// Creates a parquet [`SchemaDescriptor`] from a [`Schema`].
 pub fn to_parquet_schema(schema: &Schema) -> Result<SchemaDescriptor> {
-    println!("{:#?}", schema);
     let parquet_types = schema
         .fields
         .iter()
         .map(to_parquet_type)
         .collect::<Result<Vec<_>>>()?;
-    println!("{:#?}", parquet_types);
     Ok(SchemaDescriptor::new("root".to_string(), parquet_types))
 }
 

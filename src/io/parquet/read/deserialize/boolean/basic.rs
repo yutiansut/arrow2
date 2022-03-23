@@ -44,10 +44,12 @@ struct Required<'a> {
 
 impl<'a> Required<'a> {
     pub fn new(page: &'a DataPage) -> Self {
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
+
         Self {
             values: page.buffer(),
-            offset: 0,
-            length: page.num_values(),
+            offset,
+            length: offset + length,
         }
     }
 }

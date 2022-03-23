@@ -132,7 +132,6 @@ pub fn array_to_pages<K: DictionaryKey>(
     options: WriteOptions,
     encoding: Encoding,
 ) -> Result<DynIter<'static, Result<EncodedPage>>> {
-    println!("{descriptor:#?}");
     match encoding {
         Encoding::PlainDictionary | Encoding::RleDictionary => {
             // write DictPage
