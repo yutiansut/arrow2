@@ -61,6 +61,36 @@ impl<'a> Values<'a> {
 }
 
 #[derive(Debug)]
+pub(super) struct RequiredDictionary<'a, P>
+where
+    P: ParquetNativeType,
+{
+    pub values: std::iter::Take<std::iter::Skip<hybrid_rle::HybridRleDecoder<'a>>>,
+    pub dict: &'a [P],
+}
+
+impl<'a, P> RequiredDictionary<'a, P>
+where
+    P: ParquetNativeType,
+{
+    pub fn new(page: &'a DataPage, dict: &'a PrimitivePageDict<P>) -> Self {
+        let values = utils::dict_indices_decoder(page);
+
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
+
+        Self {
+            dict: dict.values(),
+            values: values.skip(offset).take(length),
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.size_hint().0
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct ValuesDictionary<'a, P>
 where
     P: ParquetNativeType,
@@ -74,8 +104,7 @@ where
     P: ParquetNativeType,
 {
     pub fn new(page: &'a DataPage, dict: &'a PrimitivePageDict<P>) -> Self {
-        let (_, _, indices_buffer) = utils::split_buffer(page);
-        let values = utils::dict_indices_decoder(indices_buffer, page.num_values());
+        let values = utils::dict_indices_decoder(page);
 
         Self {
             dict: dict.values(),
@@ -97,7 +126,7 @@ where
 {
     Optional(OptionalPageValidity<'a>, Values<'a>),
     Required(RequiredValues<'a>),
-    RequiredDictionary(ValuesDictionary<'a, P>),
+    RequiredDictionary(RequiredDictionary<'a, P>),
     OptionalDictionary(OptionalPageValidity<'a>, ValuesDictionary<'a, P>),
 }
 
@@ -165,7 +194,9 @@ where
         match (page.encoding(), page.dictionary_page(), is_optional) {
             (Encoding::PlainDictionary | Encoding::RleDictionary, Some(dict), false) => {
                 let dict = dict.as_any().downcast_ref().unwrap();
-                Ok(State::RequiredDictionary(ValuesDictionary::new(page, dict)))
+                Ok(State::RequiredDictionary(RequiredDictionary::new(
+                    page, dict,
+                )))
             }
             (Encoding::PlainDictionary | Encoding::RleDictionary, Some(dict), true) => {
                 let dict = dict.as_any().downcast_ref().unwrap();

@@ -375,14 +375,13 @@ pub(super) fn next<'a, I: DataPages, D: Decoder<'a>>(
 }
 
 #[inline]
-pub(super) fn dict_indices_decoder(
-    indices_buffer: &[u8],
-    additional: usize,
-) -> hybrid_rle::HybridRleDecoder {
+pub(super) fn dict_indices_decoder(page: &DataPage) -> hybrid_rle::HybridRleDecoder {
+    let (_, _, indices_buffer) = split_buffer(page);
+
     // SPEC: Data page format: the bit width used to encode the entry ids stored as 1 byte (max bit width = 32),
     // SPEC: followed by the values encoded using RLE/Bit packed described above (with the given bit width).
     let bit_width = indices_buffer[0];
     let indices_buffer = &indices_buffer[1..];
 
-    hybrid_rle::HybridRleDecoder::new(indices_buffer, bit_width as u32, additional)
+    hybrid_rle::HybridRleDecoder::new(indices_buffer, bit_width as u32, page.num_values())
 }

@@ -58,20 +58,24 @@ impl<'a> Required<'a> {
 }
 
 struct RequiredDictionary<'a> {
-    pub values: hybrid_rle::HybridRleDecoder<'a>,
-    pub remaining: usize,
+    pub values: std::iter::Take<std::iter::Skip<hybrid_rle::HybridRleDecoder<'a>>>,
     dict: &'a FixedLenByteArrayPageDict,
 }
 
 impl<'a> RequiredDictionary<'a> {
     fn new(page: &'a DataPage, dict: &'a FixedLenByteArrayPageDict) -> Self {
-        let values = dict_indices_decoder(page.buffer(), page.num_values());
+        let values = dict_indices_decoder(page);
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
 
         Self {
-            values,
-            remaining: page.num_values(),
             dict,
+            values: values.skip(offset).take(length),
         }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.size_hint().0
     }
 }
 
@@ -83,9 +87,7 @@ struct OptionalDictionary<'a> {
 
 impl<'a> OptionalDictionary<'a> {
     fn new(page: &'a DataPage, dict: &'a FixedLenByteArrayPageDict) -> Self {
-        let (_, _, indices_buffer) = split_buffer(page);
-
-        let values = dict_indices_decoder(indices_buffer, page.num_values());
+        let values = dict_indices_decoder(page);
 
         Self {
             values,
@@ -107,7 +109,7 @@ impl<'a> PageState<'a> for State<'a> {
         match self {
             State::Optional(state) => state.validity.len(),
             State::Required(state) => state.len(),
-            State::RequiredDictionary(state) => state.remaining,
+            State::RequiredDictionary(state) => state.len(),
             State::OptionalDictionary(state) => state.validity.len(),
         }
     }
@@ -208,7 +210,6 @@ impl<'a> Decoder<'a> for BinaryDecoder {
                     &dict_values[index * size..(index + 1) * size]
                 };
 
-                page.remaining = page.remaining.saturating_sub(remaining);
                 for x in page.values.by_ref().map(op).take(remaining) {
                     values.push(x)
                 }

@@ -79,6 +79,29 @@ impl<'a> Required<'a> {
 }
 
 #[derive(Debug)]
+pub(super) struct RequiredDictionary<'a> {
+    pub values: std::iter::Take<std::iter::Skip<hybrid_rle::HybridRleDecoder<'a>>>,
+    pub dict: &'a BinaryPageDict,
+}
+
+impl<'a> RequiredDictionary<'a> {
+    pub fn new(page: &'a DataPage, dict: &'a BinaryPageDict) -> Self {
+        let values = utils::dict_indices_decoder(page);
+        let (offset, length) = page.rows.unwrap_or((0, page.num_values()));
+
+        Self {
+            dict,
+            values: values.skip(offset).take(length),
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.size_hint().0
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct ValuesDictionary<'a> {
     pub values: hybrid_rle::HybridRleDecoder<'a>,
     pub dict: &'a BinaryPageDict,
@@ -86,8 +109,7 @@ pub(super) struct ValuesDictionary<'a> {
 
 impl<'a> ValuesDictionary<'a> {
     pub fn new(page: &'a DataPage, dict: &'a BinaryPageDict) -> Self {
-        let (_, _, indices_buffer) = utils::split_buffer(page);
-        let values = utils::dict_indices_decoder(indices_buffer, page.num_values());
+        let values = utils::dict_indices_decoder(page);
 
         Self { dict, values }
     }
@@ -101,7 +123,7 @@ impl<'a> ValuesDictionary<'a> {
 enum State<'a> {
     Optional(OptionalPageValidity<'a>, BinaryIter<'a>),
     Required(Required<'a>),
-    RequiredDictionary(ValuesDictionary<'a>),
+    RequiredDictionary(RequiredDictionary<'a>),
     OptionalDictionary(OptionalPageValidity<'a>, ValuesDictionary<'a>),
 }
 
@@ -170,7 +192,7 @@ impl<'a, O: Offset> utils::Decoder<'a> for BinaryDecoder<O> {
 
         match (page.encoding(), page.dictionary_page(), is_optional) {
             (Encoding::PlainDictionary | Encoding::RleDictionary, Some(dict), false) => {
-                Ok(State::RequiredDictionary(ValuesDictionary::new(
+                Ok(State::RequiredDictionary(RequiredDictionary::new(
                     page,
                     dict.as_any().downcast_ref().unwrap(),
                 )))
