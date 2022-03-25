@@ -151,7 +151,7 @@ impl<'a> OptionalPageValidity<'a> {
     }
 }
 
-struct Zip<V, I> {
+pub struct Zip<V, I> {
     validity: V,
     values: I,
 }
